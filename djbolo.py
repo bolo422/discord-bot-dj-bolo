@@ -6,12 +6,21 @@ import asyncio
 import yt_dlp
 from dotenv import load_dotenv
 import re
+import aiohttp
+import random
 
 # Define the regex patterns for each type
 playlist_pattern = r"https:\/\/www\.youtube\.com\/playlist\?list="
 music_pattern = r"https:\/\/www\.youtube\.com\/watch\?v=[\w-]+$"
 music_in_playlist_pattern = r"https:\/\/www\.youtube\.com\/watch\?v=[\w-]+&list="
 remove_music_in_playlist_pattern = r"(https:\/\/www\.youtube\.com\/watch\?v=[\w-]+)&list=.*"
+
+# List of valid User-Agents
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36"
+]
 
 def run_bot():
     load_dotenv()
@@ -322,8 +331,68 @@ def run_bot():
 
     async def get_song_info(query):
         """Extracts song information (name and URL) from a YouTube link or search query."""
-        loop = asyncio.get_event_loop()
         
+        # Choose a random User-Agent
+        user_agent = random.choice(USER_AGENTS)
+        
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'headers': {'User-Agent': user_agent}
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            ytdl = yt_dlp.YoutubeDL(ydl_opts)
+            
+            try:
+                # Attempt to extract info from the query as if it was a URL
+                data = await asyncio.to_thread(ytdl.extract_info, query, download=False)
+                
+                if not data:
+                    print(f"No data found for URL: {query}")
+                    return None, None, None
+                
+                # Check if it's a playlist
+                if 'entries' in data:
+                    songs = [(entry.get('title'), entry.get('url') or entry.get('webpage_url')) for entry in data['entries']]
+                    return songs, None, True
+                
+                song_name = data.get('title')
+                song_url = data.get('url') or data.get('webpage_url')
+                
+                return [(song_name, song_url)], song_name, False
+            
+            except Exception as e:
+                print(f"Error extracting info from URL: {e}")
+                return None, None, None
+        
+        # If the above fails, treat the query as a search term
+        try:
+            search_data = await asyncio.to_thread(ytdl.extract_info, f"ytsearch:{query}", download=False)
+            data = search_data['entries'][0] if search_data['entries'] else None
+            
+            if not data:
+                print(f"No data found for search query: {query}")
+                return None, None, None
+            
+            song_name = data.get('title')
+            song_url = data.get('url') or data.get('webpage_url')
+            
+            return [(song_name, song_url)], song_name, False
+        
+        except Exception as e:
+            print(f"Error performing YouTube search: {e}")
+            return None, None, None
+        
+    # Add rate limiting
+    async def rate_limited_get_song_info(query):
+        await asyncio.sleep(1)  # Wait for 1 second between requests
+        return await get_song_info(query)
+
+    async def get_song_info_old(query):
+        """Extracts song information (name and URL) from a YouTube link or search query."""
+        
+        loop = asyncio.get_event_loop()
+
         # Attempt to extract info from the query as if it was a URL
         try:
             data = await loop.run_in_executor(None, lambda: ytdl.extract_info(query, download=False))
@@ -363,7 +432,7 @@ def run_bot():
                 queues[ctx.guild.id] = []
 
             # Get song name and URL from the query
-            songs, song_name, is_playlist = await get_song_info(query)
+            songs, song_name, is_playlist = await rate_limited_get_song_info(query)
 
             if not songs:
                 await ctx.send("Couldn't find a song matching your query.")
@@ -421,7 +490,7 @@ def run_bot():
         await ctx.send(f'Música atual pausada em {original_timestamp // 1000} segundos.')
 
         # Baixa e toca o novo som temporário
-        songs, temp_song_name, _ = await get_song_info(query)
+        songs, temp_song_name, _ = await rate_limited_get_song_info(query)
         if not songs:
             await ctx.send("Não foi possível encontrar o som temporário solicitado.")
             return
