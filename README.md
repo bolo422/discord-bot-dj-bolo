@@ -1,1 +1,1 @@
-For now it's just a music bot, but I'm planning to add more stuff, if you want a basic and working python music bot, just revert to commit `192cc205ba3eff8ac62832982a86993da148adcf` and have fun. Don't forget to create a .env with the token
+For now it's just a music bot, but I'm planning to add more stuff, if you want a basic and working python music bot, just revert to commit [d3d3253ba075afdf1ab21b23a111b574e6ed9946](https://github.com/bolo422/discord-bot-dj-bolo/tree/d3d3253ba075afdf1ab21b23a111b574e6ed9946) and have fun. Don't forget to create a .env with the token
