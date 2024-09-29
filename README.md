@@ -1,2 +1,1 @@
-# discord-bot-dj-bolo
-A discord music bot
+For now it's just a music bot, but I'm planning to add more stuff, if you want a basic and working python music bot, just revert to commit `192cc205ba3eff8ac62832982a86993da148adcf` and have fun. Don't forget to create a .env with the token
