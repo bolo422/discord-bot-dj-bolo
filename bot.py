@@ -23,7 +23,11 @@ def run_bot():
     queues = {}
     now_playing = {}
     voice_clients = {}
-    yt_dl_options = {"format": "bestaudio/best"}
+    yt_dl_options = {
+        "format": "bestaudio/best",
+        "nocookies": True,
+        "extractor-args": "youtube:player-client=web,default;player-skip=webpage,configs"
+    }
     ytdl = yt_dlp.YoutubeDL(yt_dl_options)
     message_max_length = 1800
 
