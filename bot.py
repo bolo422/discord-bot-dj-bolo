@@ -451,3 +451,6 @@ def run_bot():
             await ctx.send('Erro ao retomar a música original.2')
 
     client.run(TOKEN)
+
+if __name__ == '__main__':
+    run_bot()
