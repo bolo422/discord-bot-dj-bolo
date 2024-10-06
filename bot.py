@@ -6,12 +6,19 @@ import asyncio
 import yt_dlp
 from dotenv import load_dotenv
 import re
+from enum import Enum
 
 # Define the regex patterns for each type
 playlist_pattern = r"https:\/\/www\.youtube\.com\/playlist\?list="
 music_pattern = r"https:\/\/www\.youtube\.com\/watch\?v=[\w-]+$"
 music_in_playlist_pattern = r"https:\/\/www\.youtube\.com\/watch\?v=[\w-]+&list="
-remove_music_in_playlist_pattern = r"(https:\/\/www\.youtube\.com\/watch\?v=[\w-]+)&list=.*"
+remove_music_in_playlist_pattern = r"(https:\/\/(www\.|music\.)?youtube\.com\/watch\?v=[\w-]+)&list=.*"
+
+class YouTubeLinkCategory(Enum):
+    NOT_YOUTUBE = "NOT_YOUTUBE"
+    NORMAL = "NORMAL"
+    PLAYLIST = "PLAYLIST"
+    VIDEO_WITH_PLAYLIST = "VIDEO_WITH_PLAYLIST"
 
 def run_bot():
     load_dotenv()
@@ -140,28 +147,49 @@ def run_bot():
             data = queues[ctx.guild.id].pop(0)
             await play(ctx, data[0], data[1])
 
-    async def identify_youtube_link(url):
-        if re.match(playlist_pattern, url):
-            return "Playlist"
-        elif re.match(music_in_playlist_pattern, url):
-            return "Music inside Playlist"
-        elif re.match(music_pattern, url):
-            return "Music"
+    def identify_youtube_link_category(link: str) -> YouTubeLinkCategory:
+        if "watch" in link and "list" not in link and "playlist" not in link:
+            return YouTubeLinkCategory.NORMAL
+        elif "playlist" in link and "watch" not in link:
+            return YouTubeLinkCategory.PLAYLIST
+        elif "watch" in link and "list" in link:
+            return YouTubeLinkCategory.VIDEO_WITH_PLAYLIST
         else:
-            return "Invalid YouTube link"
+            return YouTubeLinkCategory.NOT_YOUTUBE
     
-    async def clean_music_link(url):
-        # Check if the link is "Music inside Playlist"
-        if re.match(remove_music_in_playlist_pattern, url):
-            # Remove the "&list=" part and anything after it
-            cleaned_url = re.sub(r"&list=.*", "", url)
-            return cleaned_url
-        else:
-            return url
+    remove_list_pattern = r"&list=.*"
+
+    def clean_music_link(url):
+        # Remove the "&list=" part and anything after it
+        cleaned_url = re.sub(remove_list_pattern, "", url)
+        return cleaned_url
+    
+    def remove_youtube_music_string(url):
+        # if url contains  'music.youtube.com'
+        # should remove 'music.'
+        if "music.youtube.com" in url:
+            return url.replace("music.", "")
+    
+
+    #def check_if_is_only_playlist(url):
+        # must contain playlist?list=
+        
+    
+    
+    def remove_list_substring(input_string):
+        # Find the index of "&list"
+        index = input_string.find("&list")
+        
+        # If "&list" is found, slice the string to exclude everything after it
+        if index != -1:
+            return input_string[:index]
+        
+        # If "&list" is not found, return the original string
+        return input_string
 
     async def play(ctx, link, title):
         #check if no link was provided, if so, check if player is paused, if paused, resume, if not, check if any song is in the queue, if so, play the next song in the queue, if not, send "No song in queue"
-
+        link = remove_list_substring(link)
         if not link or not title:
             if ctx.guild.id in voice_clients:
                 if voice_clients[ctx.guild.id].is_paused():
@@ -173,23 +201,29 @@ def run_bot():
                     await ctx.send('No song in queue')
 
         try:
-            voice_client = await ctx.author.voice.channel.connect()
-            
-            #voice_clients[voice_client.guild.id] = voice_client
-            #instead of just adding voice client to voice_clients, firstcheck if voice_client.guild.id is in voice_clients, if so, just add the song to the queue
-            
+            # Verifica se o bot já está conectado a esse canal de voz
+            if ctx.author.voice.channel:
+                voice_channel = ctx.author.voice.channel
+            else:
+                await ctx.send("You must be in a voice channel to play music.")
+                return
+
+            # Tenta se conectar ao canal de voz
+            voice_client = await voice_channel.connect()
+
+            # Verifica se já existe um voice_client para essa guilda
             if voice_client.guild.id not in voice_clients:
                 voice_clients[voice_client.guild.id] = voice_client
             else:
-                print('!@#$!#!@#$@#$!#@$@#$!@#¨%@#!¨@$$!@#$!@#$!@!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
-                queue(ctx, link)
+                # Se o bot já está conectado, adiciona a música à fila e sai
+                await queue(ctx, link)
                 return
 
         except Exception as e:
             print(e)
     
         try:
-            loop = asyncio.get_event_loop()
+            #loop = asyncio.get_event_loop()
             #data = await loop.run_in_executor(None, lambda: ytdl.extract_info(link, download=False))
 
             #if not data:
@@ -203,9 +237,10 @@ def run_bot():
             
             #song_name = data.get('title')
             #song_url = data.get('url') or data.get('webpage_url')
-            #cleaned_url = clean_music_link(link)
+            #cleaned_url = remove_list_substring(link)
 
             player = discord.FFmpegOpusAudio(link, **ffmpeg_options)
+            print(link)
 
             voice_clients[ctx.guild.id].play(player, after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), client.loop))
 
@@ -326,11 +361,11 @@ def run_bot():
 
     async def get_song_info(query):
         """Extracts song information (name and URL) from a YouTube link or search query."""
-        loop = asyncio.get_event_loop()
-        
+        #loop = asyncio.get_event_loop()
+        query = clean_music_link(query)
         # Attempt to extract info from the query as if it was a URL
         try:
-            data = await loop.run_in_executor(None, lambda: ytdl.extract_info(query, download=False))
+            data = await asyncio.to_thread(None, lambda: ytdl.extract_info(query, download=False))
         except Exception as e:
             print(f"Error extracting info from URL: {e}")
             data = None
@@ -339,7 +374,7 @@ def run_bot():
         if not data:
             try:
                 # Perform a YouTube search for the query
-                search_data = await loop.run_in_executor(None, lambda: ytdl.extract_info(f"ytsearch:{query}", download=False))
+                search_data = await asyncio.to_thread(None, lambda: ytdl.extract_info(f"ytsearch:{query}", download=False))
                 # Extract information from the first search result
                 data = search_data['entries'][0] if search_data['entries'] else None
             except Exception as e:
@@ -351,17 +386,21 @@ def run_bot():
         
         # Check if it's a playlist
         if 'entries' in data:
+            print('\n-------------\nPlaylist\n--------------\n')
             songs = [(entry.get('title'), entry.get('url') or entry.get('webpage_url')) for entry in data['entries']]
             return songs, None, True
 
         song_name = data.get('title')
         song_url = data.get('url') or data.get('webpage_url')
 
+        print('\n-------------\nNot Playlist\n--------------\n')
         return [(song_name, song_url)], song_name, False
 
     @client.command(name='play', aliases=['q', 'queue', 'p'], help='Plays or queues a song or playlist from a YouTube link or search query')
     async def queue(ctx, *, query):
         async with ctx.typing():
+            print('\n=====================\n' + identify_youtube_link_category(query) + '\n=====================\n')
+
             # Initialize the queue for the guild if it doesn't exist
             if ctx.guild.id not in queues:
                 queues[ctx.guild.id] = []
